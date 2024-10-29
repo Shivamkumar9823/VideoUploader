@@ -52,12 +52,13 @@ const userSchema = new mongoose.Schema({
 // This is a pre-save middleware in Mongoose.
 userSchema.pre("save", async function (next){
     if(this.isModified("password")){
-        this.password = bcrypt.hash(this.password , 10);  //encrypt the password...  The second argument 10 is the salt rounds which defines the complexity of the hashing process.
+        this.password = await bcrypt.hash(this.password , 10);  //encrypt the password...  The second argument 10 is the salt rounds which defines the complexity of the hashing process.
         next();
     }
 } )
 
 //This is a custom methods added to the userSchema model.
+
 userSchema.methods.isPasswordCorrect = async function(password){
    return await bcrypt.compare(password, this.password)
    //password (likely the one entered by the user during login) compare with the hashed password stored in the database (this.password).
@@ -82,7 +83,6 @@ userSchema.methods.generateAccessToken = function(){
       }
     
     )
-
  }
 
 
@@ -104,10 +104,4 @@ userSchema.methods.generateRefreshToken = function(){
 
 
 
-
-
-
-
-
-
-export const user = mongoose.model("User", userSchema)
+export const User = mongoose.model("User", userSchema)
