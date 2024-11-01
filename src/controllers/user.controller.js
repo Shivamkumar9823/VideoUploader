@@ -2,7 +2,8 @@ import { asyncHandler } from "../utils/asyncHandler.js" ;
 import { ApiError } from "../utils/ApiError.js";
 import { User }  from "../models/user.model.js";
 import {uploadOnCloudinary} from "../utils/cloudinary.js";
-import {ApiResponse} from "../utils/ApiResponse.js"
+import {ApiResponse} from "../utils/ApiResponse.js";
+import jwt from "jsonwebtoken"
 
 
 
@@ -112,8 +113,9 @@ const registerUser = asyncHandler( async (req, res) =>{
 const loginUser = asyncHandler( async (req, res) =>{
     
     const { email, username, password } = req.body; //credentials 
+    console.log(req.body)
 
-    if(!username || !email){
+    if(!(username || email)){
         throw new ApiError(400, "Username or email is required!")
     }
 
@@ -131,6 +133,7 @@ const loginUser = asyncHandler( async (req, res) =>{
      if(!isPasswordvalid){
         throw new ApiError(401, "Wrong Password!")
      }
+    //  console.log("password is correct")
 
      //destructure 
      const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user._id)
@@ -142,7 +145,7 @@ const options = {
     httpOnly: true,
     secure: true
 }
-
+//  console.log("accesToken  generated :", accessToken)
 return res
 .status(200)
 .cookie("accessToken",accessToken, options)
@@ -150,7 +153,7 @@ return res
 .json(
     new ApiResponse( 200,
         {
-            user: loggedInUser, accessToken, refreshToken
+            user: loggedInUser
         },
         "User logged In Successfully"
     )
@@ -170,7 +173,7 @@ const logoutUser = asyncHandler(async(req, res)=>{
                 new: true
             }
          )
-         
+
         const options = {
             httpOnly: true,
             secure: true
@@ -184,5 +187,179 @@ const logoutUser = asyncHandler(async(req, res)=>{
 
 })
 
+const refreshAccessToken = asyncHandler(async (req, res) =>{
+   const incomingRefreshToken =  req.cookies.refreshToken || req.body.refreshToken;
+   if(!incomingRefreshToken){
+       throw new ApiError(401,"unauthorized request")
+   }
 
-export { registerUser, loginUser, logoutUser }
+  try {
+     
+     const decodedToken = jwt.verify(
+      incomingRefreshToken,
+      process.env.REFRESH_TOKEN_SECRET
+  )
+  
+  const user = await User.findById(decodedToken?._id);
+  if(!user){
+      throw new ApiError(401,"Invalid refresh token")
+  }
+  
+  if(incomingRefreshToken !== user?.refreshToken){
+      throw new ApiError(401,"Refresh Token is expired or used")
+  }
+  
+  const options = {
+      httpOnly:true,
+      secure:true
+  }
+  
+  const {accessToken,newrefreshToken} = await generateAccessAndRefreshTokens(user._id);
+  
+  return res
+  .status(200)
+  .cookie("accessToken",accessToken,options)
+  .cookie("refreshToken",newrefreshToken,options)
+  .json(
+      new ApiError(200,
+          {
+              accessToken, refreshToken:newrefreshToken 
+          },
+          "Access token refreshed"
+      )
+  )
+  } catch (error) {
+      throw new ApiError(401,error?.message || "invalid refresh token")
+  }
+
+})
+
+const changeCurrentPassword = asyncHandler( async(req, res)=>{
+    const {oldPassword, newPassword} = req.body;
+    const user = await User.findById(req.user?._id);
+    const isPasswordCorrect = await user.isPasswordCorrect(oldPassword)
+    if(!isPasswordCorrect){
+        throw new ApiError(400, "Invalid old password!")
+    }
+    
+    user.password = newPassword;
+    await user.save({ validateBeforeSave: false})
+
+    return res
+    .status(200)
+    .json(new ApiError(200,{},"Password change successfully!"))
+});
+
+const getCurrentUser = asyncHandler(async(req, res)=>{
+    return res
+    .status(200)
+    .json(200, req.user, "current user fetched successfully!")
+})
+
+const updateAccountDetails = asyncHandler(async(req, res)=>{
+    const {fullname, email} = req.body;
+
+    if(!fullname || !email){
+        throw new ApiError(400,"All fiels are requrired");
+    }
+    const user = User.findByIdAndUpdate(
+        req.user?._id,
+        {
+           $set:{
+            fullname: fullname,
+            email: email
+           }
+        },
+        {
+            new:true
+        }
+    ).select("-password")
+
+
+return res
+.status(200)
+.json(new ApiResponse(200, user, "Acount Details updated ! "))
+
+});
+
+//how to update files...
+const updateUserAvatar = asyncHandler(async(req, res)=>{
+     const avatarLocalPath = req.files?.path;
+
+     if(!avatarLocalPath){
+        throw new ApiError(400, "Avatar file is missing")
+     }
+     const avatar  = await uploadOnCloudinary(avatarLocalPath);
+    
+     if(!avatar.url){
+           throw new ApiError(400, "Error while uploading on avatar");
+     }
+     
+     const user = await User.findByIdAndUpdate(
+        req.user?._id,
+        { 
+            $set:{
+                avatar:avatar.url
+            }
+
+        },
+        {
+            new:true
+        }
+    ).select("-password")
+
+    return res
+    .status(200)
+    .json(
+        new ApiResponse(200, user, "Avater file is update successfully" )
+    )
+
+
+})
+const updateUserCoverImage = asyncHandler(async(req, res)=>{
+     const coverImageLocalPath = req.files?.path;
+
+     if(!coverImageLocalPath){
+        throw new ApiError(400, "coverImage file is missing")
+     }
+     const coverImage  = await uploadOnCloudinary(coverImageLocalPath);
+    
+     if(!coverImage.url){
+           throw new ApiError(400, "Error while uploading coverImage");
+     }
+     
+     const user = await User.findByIdAndUpdate(
+        req.user?._id,
+        { 
+            $set:{
+                 coverImage:coverImage.url
+            }
+        },
+        {
+            new:true
+        }
+    ).select("-password")
+
+    return res
+    .status(200)
+    .json(
+        new ApiResponse(200, user, "Cover Image file is update successfully" )
+    )
+
+
+})
+
+
+
+export { 
+    registerUser, 
+    loginUser, 
+    logoutUser, 
+    refreshAccessToken,
+    changeCurrentPassword, 
+    getCurrentUser,
+    updateAccountDetails,
+    updateUserAvatar,
+    updateUserCoverImage 
+
+}
